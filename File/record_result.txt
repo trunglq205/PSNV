@@ -1,0 +1,37 @@
+import re
+from playwright.sync_api import Page, expect
+
+
+def test_example(page: Page) -> None:
+    page.get_by_role("button", name="Load Tải tài khoản").click()
+    page.get_by_role("textbox", name="Điền list ID, mỗi ID cách").click()
+    page.get_by_role("textbox", name="Điền list ID, mỗi ID cách").press("ControlOrMeta+a")
+    page.get_by_role("textbox", name="Điền list ID, mỗi ID cách").fill("1350140599880348\n2207862896409202")
+    page.get_by_role("button", name="Tải ngay").click()
+    page.get_by_text("bayer 110 17").click()
+    page.get_by_text("bayer 110 22").click()
+    page2.goto("https://adsmanager.facebook.com/adsmanager/manage/campaigns?act=2207862896409202#")
+    page1.goto("https://adsmanager.facebook.com/adsmanager/manage/campaigns?act=1350140599880348#")
+    page2.goto("https://adsmanager.facebook.com/adsmanager/manage/campaigns?act=2207862896409202#")
+    page1.get_by_role("link", name="Lập hóa đơn và thanh toán").click()
+    page1.goto("https://business.facebook.com/billing_hub/accounts/details/?business_id=2461376284235400&asset_id=1350140599880348&payment_account_id=1350140599880348&placement=ads_manager&entrypoint=ads_ecosystem_navigation_ads_billing_tool_plugin&payment_account_id_from_jsmodule=1350140599880348")
+    page1.get_by_role("button", name="Hoạt động thanh toán").click()
+    page1.get_by_role("button", name="3 Tháng 6, 2026 – 9 Tháng 6,").click()
+    page1.get_by_label("Giá trị đặt sẵn của khoảng ng").get_by_text("Tháng trước").click()
+    page1.get_by_role("button", name="Tải xuống").click()
+    with page1.expect_download() as download_info:
+        with page1.expect_popup() as page3_info:
+            page1.get_by_role("link", name="Tải báo cáo xuống (PDF)").click()
+        page3 = page3_info.value
+    download = download_info.value
+    page2.get_by_role("link", name="Lập hóa đơn và thanh toán").click()
+    page2.goto("https://business.facebook.com/billing_hub/accounts/details/?business_id=2461376284235400&asset_id=2207862896409202&payment_account_id=2207862896409202&placement=ads_manager&entrypoint=ads_ecosystem_navigation_ads_billing_tool_plugin&payment_account_id_from_jsmodule=2207862896409202")
+    page2.get_by_role("button", name="Hoạt động thanh toán").click()
+    page2.get_by_role("button", name="3 Tháng 6, 2026 – 9 Tháng 6,").click()
+    page2.locator("div").filter(has_text=re.compile(r"^Tháng trước$")).nth(1).click()
+    page2.get_by_role("button", name="Tải xuống").click()
+    with page2.expect_download() as download1_info:
+        with page2.expect_popup() as page4_info:
+            page2.get_by_role("link", name="Tải báo cáo xuống (PDF)").click()
+        page4 = page4_info.value
+    download1 = download1_info.value

@@ -1,0 +1,2 @@
+# PSNV
+Cả nhà mình ơi, chỉ còn không đầy 24h nữa là chúng ta sẽ bắt đầu Summer Vacation ACC & IT 2026 rồi ạ. Em gửi mọi người poster để nắm rõ lịch trình ngày mai nhaaa. Sẽ có rất nhiều trò chơi và phần quà hấp dẫn nên mọi người hãy chuẩn bị một tâm hồn thật đẹp và khỏe khoắn để tham gia nhé ạ. Em nghe nói ở nhà hàng có hệ thống âm thanh rất tốt nên rất mong cuối buổi Gala dinner sẽ có những giọng ca vàng góp vui nhé ạ.

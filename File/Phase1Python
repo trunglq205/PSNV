@@ -178,3 +178,236 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+/
+/
+/
+/
+/
+/
+/
+
+/
+#!/usr/bin/env python3
+r"""
+PHASE 1 — Chụp màn hình Ads Manager (tháng trước) bằng LightShot và lấy link.
+
+Với một danh sách tài khoản quảng cáo, xử lý lần lượt từng tài khoản:
+  - Mở màn hình Ads Manager (đã lọc tháng trước), chờ render.
+  - Đưa cửa sổ Chrome lên trên cùng (ưu tiên Win32 SetForegroundWindow nếu có pywin32).
+  - Bấm Ctrl+` THẬT  ->  LightShot chụp full màn hình + tự upload.
+  - Chờ upload xong, lấy link prnt.sc từ clipboard.
+  - Ghi link ra file text theo ĐÚNG THỨ TỰ ID.
+
+Mỗi tài khoản dùng MỘT tab, xong mới đóng tab rồi sang ID kế (nhẹ RAM).
+Dùng lại profile Chrome đã đăng nhập FB: D:\AdsBotProfile
+
+LƯU Ý: phần này thao tác trên MÀN HÌNH THẬT (LightShot là app desktop). Khi script
+chạy, KHÔNG đụng chuột/bàn phím và KHÔNG để cửa sổ khác che lên Chrome.
+Dừng khẩn cấp: đưa chuột vào GÓC TRÊN-TRÁI màn hình, hoặc bấm Ctrl+C ở cửa sổ lệnh.
+"""
+from __future__ import annotations
+import sys
+import time
+import ctypes
+import logging
+from pathlib import Path
+from datetime import date, timedelta
+
+from playwright.sync_api import sync_playwright, Page
+
+import pyautogui
+import pyperclip
+import pygetwindow as gw
+
+# pywin32 (tùy chọn) — để đưa cửa sổ lên foreground "mạnh tay" hơn
+try:
+    import win32gui
+    import win32con
+    _WIN32_AVAILABLE = True
+except Exception:
+    _WIN32_AVAILABLE = False
+
+# =========================== CẤU HÌNH ===========================
+PROFILE_DIR      = r"D:\AdsBotProfile"   # profile Chrome ĐÃ đăng nhập FB
+OUTPUT_DIR       = r"D:\openChorm"        # nơi lưu file link
+ACCOUNT_IDS_FILE = "account_ids.txt"      # danh sách ID, mỗi dòng một Account ID
+
+# Bộ lọc trạng thái chiến dịch trên Ads Manager (giữ nguyên như tool .NET của bạn)
+FILTER_SET = (
+    "CAMPAIGN_GROUP_DELIVERY_STATUS-STRING_SET%1EIN%1E"
+    "[%22active%22%2C%22draft%22%2C%22pending%22%2C%22inactive%22%2C"
+    "%22error%22%2C%22deleted%22%2C%22completed%22%2C%22off%22]"
+)
+
+SCREENSHOT_WAIT_MS  = 10_000   # chờ Ads Manager render bảng TRƯỚC khi chụp (mili-giây)
+UPLOAD_WAIT_SECONDS = 30       # chờ tối đa LightShot upload xong để lấy link (giây)
+
+# Đưa Chrome lên trên cùng bằng Win32 (cần: pip install pywin32). True = ưu tiên Win32.
+USE_WIN32_FOREGROUND = True
+# ================================================================
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s | %(levelname)-7s | %(message)s",
+    datefmt="%H:%M:%S",
+)
+log = logging.getLogger("phase1")
+
+
+def last_month_label() -> str:
+    last_day_prev = date.today().replace(day=1) - timedelta(days=1)
+    return last_day_prev.strftime("%Y_%m")
+
+
+def last_month_range_ymd() -> tuple[str, str]:
+    """(ngày đầu tháng trước, ngày đầu tháng này) dạng YYYY-MM-DD."""
+    first_this = date.today().replace(day=1)
+    first_prev = (first_this - timedelta(days=1)).replace(day=1)
+    return first_prev.isoformat(), first_this.isoformat()
+
+
+def read_account_ids() -> list[str]:
+    p = Path(ACCOUNT_IDS_FILE)
+    if not p.exists():
+        log.error("Không thấy %s. Tạo file này, mỗi dòng một Account ID.", ACCOUNT_IDS_FILE)
+        sys.exit(1)
+    ids = [ln.strip() for ln in p.read_text(encoding="utf-8").splitlines()
+           if ln.strip() and not ln.strip().startswith("#")]
+    if not ids:
+        log.error("%s đang trống.", ACCOUNT_IDS_FILE)
+        sys.exit(1)
+    return ids
+
+
+def adsmanager_url(account_id: str, from_d: str, to_d: str) -> str:
+    return ("https://adsmanager.facebook.com/adsmanager/manage/campaigns"
+            f"?act={account_id}"
+            f"&date={from_d}_{to_d}"
+            f"&insights_date={from_d}_{to_d}"
+            f"&filter_set={FILTER_SET}")
+
+
+# ----------------------- ĐƯA CỬA SỔ LÊN TRƯỚC -----------------------
+def _force_foreground_win32(hwnd: int) -> None:
+    """Ép cửa sổ lên foreground bằng Win32 (mạnh tay hơn activate thường)."""
+    if win32gui.IsIconic(hwnd):
+        win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
+    # Mẹo bỏ qua "khóa foreground" của Windows: gửi một nhịp phím ALT trước
+    user32 = ctypes.windll.user32
+    user32.keybd_event(0x12, 0, 0, 0)          # ALT down
+    user32.keybd_event(0x12, 0, 0x0002, 0)     # ALT up
+    win32gui.BringWindowToTop(hwnd)
+    win32gui.SetForegroundWindow(hwnd)
+
+
+def bring_chrome_to_front(page: Page) -> None:
+    """Đưa cửa sổ Chrome đang dùng lên trên cùng (nhận diện qua tiêu đề trang)."""
+    title = page.title()
+    if not title:
+        return
+    target = next((w for w in gw.getAllWindows() if title in w.title), None)
+    if target is None:
+        return
+    try:
+        if target.isMinimized:
+            target.restore()
+    except Exception:
+        pass
+
+    # Ưu tiên Win32 (chắc tay hơn) nếu bật cờ và đã cài pywin32
+    if USE_WIN32_FOREGROUND and _WIN32_AVAILABLE:
+        try:
+            _force_foreground_win32(target._hWnd)
+            return
+        except Exception as e:
+            log.warning("Win32 đưa cửa sổ lên trước lỗi (%s); dùng cách thường.", e)
+
+    # Cách thường (pygetwindow)
+    try:
+        target.activate()
+    except Exception:
+        pass
+
+
+def capture_and_get_link(page: Page, account_id: str, from_d: str, to_d: str) -> str:
+    log.info("[%s] Mở Ads Manager & chờ render...", account_id)
+    page.goto(adsmanager_url(account_id, from_d, to_d), wait_until="domcontentloaded", timeout=60_000)
+    page.wait_for_timeout(SCREENSHOT_WAIT_MS)
+
+    # 1) Đưa Chrome lên trên cùng để LightShot chụp đúng nội dung
+    bring_chrome_to_front(page)
+    time.sleep(0.5)
+
+    # 2) Bấm Ctrl+` THẬT -> LightShot chụp full màn hình + tự upload
+    pyperclip.copy("___cho___")            # đặt giá trị lạ vào clipboard để nhận ra link mới
+    pyautogui.hotkey("ctrl", "`")
+    log.info("[%s] Đã bấm Ctrl+` , chờ LightShot upload...", account_id)
+
+    # 3) Link đã được bôi đen sẵn trong ô góc phải
+    #    -> lặp Ctrl+C tới khi clipboard có link prnt.sc
+    link = ""
+    deadline = time.time() + UPLOAD_WAIT_SECONDS
+    while time.time() < deadline:
+        time.sleep(1)
+        pyautogui.hotkey("ctrl", "c")
+        clip = pyperclip.paste().strip()
+        if clip.startswith("http") and ("prnt.sc" in clip or "prntscr" in clip):
+            link = clip
+            break
+    if not link:
+        raise RuntimeError("Không lấy được link từ clipboard (LightShot chưa upload xong?)")
+    log.info("[%s] Link ảnh -> %s", account_id, link)
+    return link
+
+
+def main() -> None:
+    account_ids = read_account_ids()
+    out_dir = Path(OUTPUT_DIR)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    label = last_month_label()
+    from_d, to_d = last_month_range_ymd()
+    log.info("PHASE 1 — tháng %s (%s_%s), %d tài khoản.", label, from_d, to_d, len(account_ids))
+
+    if USE_WIN32_FOREGROUND and not _WIN32_AVAILABLE:
+        log.warning("Chưa cài pywin32 -> dùng cách đưa cửa sổ thường. "
+                    "Cài 'pip install pywin32' để ổn định hơn.")
+
+    # Đưa chuột vào GÓC TRÊN-TRÁI màn hình để DỪNG khẩn cấp
+    pyautogui.FAILSAFE = True
+
+    links_path = out_dir / f"links_anh_{label}.txt"
+    ok, fail = 0, 0
+
+    with sync_playwright() as p, links_path.open("w", encoding="utf-8") as lf:
+        lf.write("Account ID\tLink ảnh (prnt.sc)\n")
+
+        context = p.chromium.launch_persistent_context(
+            PROFILE_DIR, channel="chrome", headless=False,
+            no_viewport=True, args=["--start-maximized"],
+        )
+
+        for account_id in account_ids:
+            page = context.new_page()
+            link = "—"
+            try:
+                link = capture_and_get_link(page, account_id, from_d, to_d)
+                ok += 1
+            except pyautogui.FailSafeException:
+                raise                       # đưa chuột vào góc = dừng khẩn cấp toàn bộ
+            except Exception as e:
+                link = "LỖI"
+                fail += 1
+                log.error("[%s] LỖI: %s", account_id, e)
+            finally:
+                lf.write(f"{account_id}\t{link}\n")
+                lf.flush()
+                page.close()
+
+        log.info("XONG. Lấy được link: %d | Lỗi: %d", ok, fail)
+        log.info("File link: %s", links_path)
+        input("Nhấn Enter để đóng trình duyệt...")   # bỏ dòng này khi hẹn lịch tự động
+        context.close()
+
+
+if __name__ == "__main__":
+    main()

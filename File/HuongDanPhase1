@@ -1,0 +1,267 @@
+# Hướng dẫn triển khai PHASE 1 — Chụp Ads Manager bằng LightShot (Windows)
+
+> Tài liệu mang về nhà để thực hiện. Thư mục làm việc: **`E:\PythonTool\`**.
+> **Phase 1 chạy độc lập** với phần tải PDF (Phase 2). Mục tiêu: với danh sách tài khoản quảng cáo, mở màn hình Ads Manager (lọc tháng trước), **chụp full màn hình + upload bằng LightShot**, lấy **link prnt.sc**, rồi ghi link ra file text theo đúng thứ tự ID.
+
+---
+
+## 0. Tổng quan & lưu ý quan trọng
+
+**Cơ chế ghép 2 tầng** (vì LightShot là app desktop, không nằm trong trình duyệt):
+- **Playwright** lo: mở đúng URL Ads Manager (đã lọc tháng trước), chờ render, đưa cửa sổ Chrome lên trên cùng.
+- **pyautogui + pyperclip + pygetwindow** lo phần hệ điều hành: bấm **Ctrl+`** thật để LightShot chụp + upload, rồi **đọc link từ clipboard**.
+
+**Lưu ý vì thao tác trên màn hình thật:**
+- Khi script chạy phần chụp, **không đụng chuột/bàn phím** và **không để cửa sổ khác che lên Chrome** — LightShot chụp đúng những gì đang hiển thị.
+- **Dừng khẩn cấp:** đưa chuột vào **góc trên-trái** màn hình, hoặc bấm **Ctrl+C** ở cửa sổ lệnh.
+- Nên chạy trên **một màn hình** cho đơn giản.
+- Phần này **không hợp để hẹn lịch chạy nền** (cần màn hình thật, không bị che) — nên chạy thủ công có người ngồi cạnh.
+
+---
+
+## 1. Chuẩn bị (làm một lần)
+
+**1.1. Môi trường Python:** nếu đã có `venv` từ Phase 2 thì dùng chung. Nếu chưa:
+```bash
+cd /d E:\PythonTool
+python -m venv venv
+venv\Scripts\activate
+```
+
+**1.2. Cài thư viện:**
+```bash
+pip install playwright pyautogui pyperclip pygetwindow
+```
+(Không cần `playwright install chromium` vì dùng Chrome thật — `channel="chrome"`.)
+
+**1.3. LightShot:** đảm bảo LightShot **đang chạy** (có icon ở khay hệ thống), và phím tắt **Ctrl+`** được cấu hình để **chụp full màn hình + tự upload** (đúng như bạn đang dùng). Sau khi upload, ô link prnt.sc hiện ở góc dưới-phải và link đã được bôi đen sẵn.
+
+**1.4. Profile Facebook:** `D:\AdsBotProfile` đã đăng nhập Facebook. **Đóng** mọi Chrome/tool đang dùng profile này trước khi chạy (tránh khóa profile). Nếu bị đăng xuất, xem Phụ lục B.
+
+**1.5. Danh sách ID:** dùng chung file `account_ids.txt` với Phase 2 (mỗi dòng một Account ID).
+
+---
+
+## 2. Tạo file `phase1_screenshot.py` trong E:\PythonTool
+
+Cách tạo: mở **Notepad** → dán nội dung → *Save As* → "Save as type" chọn **All files** → tên `phase1_screenshot.py` → lưu vào `E:\PythonTool`.
+
+```python
+#!/usr/bin/env python3
+r"""
+PHASE 1 — Chụp màn hình Ads Manager (tháng trước) bằng LightShot và lấy link.
+Dùng lại profile Chrome đã đăng nhập FB: D:\AdsBotProfile
+Khi chạy: KHÔNG đụng chuột/bàn phím, không để cửa sổ khác che Chrome.
+Dừng khẩn cấp: đưa chuột vào góc trên-trái, hoặc Ctrl+C ở cửa sổ lệnh.
+"""
+from __future__ import annotations
+import sys
+import time
+import logging
+from pathlib import Path
+from datetime import date, timedelta
+
+from playwright.sync_api import sync_playwright, Page
+
+import pyautogui
+import pyperclip
+import pygetwindow as gw
+
+# =========================== CẤU HÌNH ===========================
+PROFILE_DIR      = r"D:\AdsBotProfile"   # profile Chrome ĐÃ đăng nhập FB
+OUTPUT_DIR       = r"D:\openChorm"        # nơi lưu file link
+ACCOUNT_IDS_FILE = "account_ids.txt"      # danh sách ID, mỗi dòng một Account ID
+
+# Bộ lọc trạng thái chiến dịch trên Ads Manager (giữ nguyên như tool .NET của bạn)
+FILTER_SET = (
+    "CAMPAIGN_GROUP_DELIVERY_STATUS-STRING_SET%1EIN%1E"
+    "[%22active%22%2C%22draft%22%2C%22pending%22%2C%22inactive%22%2C"
+    "%22error%22%2C%22deleted%22%2C%22completed%22%2C%22off%22]"
+)
+
+SCREENSHOT_WAIT_MS  = 10_000   # chờ Ads Manager render bảng TRƯỚC khi chụp (mili-giây)
+UPLOAD_WAIT_SECONDS = 30       # chờ tối đa LightShot upload xong để lấy link (giây)
+# ================================================================
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s | %(levelname)-7s | %(message)s",
+    datefmt="%H:%M:%S",
+)
+log = logging.getLogger("phase1")
+
+
+def last_month_label() -> str:
+    last_day_prev = date.today().replace(day=1) - timedelta(days=1)
+    return last_day_prev.strftime("%Y_%m")
+
+
+def last_month_range_ymd() -> tuple[str, str]:
+    """(ngày đầu tháng trước, ngày đầu tháng này) dạng YYYY-MM-DD."""
+    first_this = date.today().replace(day=1)
+    first_prev = (first_this - timedelta(days=1)).replace(day=1)
+    return first_prev.isoformat(), first_this.isoformat()
+
+
+def read_account_ids() -> list[str]:
+    p = Path(ACCOUNT_IDS_FILE)
+    if not p.exists():
+        log.error("Không thấy %s. Tạo file này, mỗi dòng một Account ID.", ACCOUNT_IDS_FILE)
+        sys.exit(1)
+    ids = [ln.strip() for ln in p.read_text(encoding="utf-8").splitlines()
+           if ln.strip() and not ln.strip().startswith("#")]
+    if not ids:
+        log.error("%s đang trống.", ACCOUNT_IDS_FILE)
+        sys.exit(1)
+    return ids
+
+
+def adsmanager_url(account_id: str, from_d: str, to_d: str) -> str:
+    return ("https://adsmanager.facebook.com/adsmanager/manage/campaigns"
+            f"?act={account_id}"
+            f"&date={from_d}_{to_d}"
+            f"&insights_date={from_d}_{to_d}"
+            f"&filter_set={FILTER_SET}")
+
+
+def bring_chrome_to_front(page: Page) -> None:
+    """Đưa cửa sổ Chrome đang dùng lên trên cùng (nhận diện qua tiêu đề trang)."""
+    title = page.title()
+    for w in gw.getAllWindows():
+        if title and title in w.title:
+            try:
+                if w.isMinimized:
+                    w.restore()
+                w.activate()
+            except Exception:
+                pass
+            return
+
+
+def capture_and_get_link(page: Page, account_id: str, from_d: str, to_d: str) -> str:
+    log.info("[%s] Mở Ads Manager & chờ render...", account_id)
+    page.goto(adsmanager_url(account_id, from_d, to_d), wait_until="domcontentloaded", timeout=60_000)
+    page.wait_for_timeout(SCREENSHOT_WAIT_MS)
+
+    # 1) Đưa Chrome lên trên cùng để LightShot chụp đúng nội dung
+    bring_chrome_to_front(page)
+    time.sleep(0.5)
+
+    # 2) Bấm Ctrl+` THẬT -> LightShot chụp full màn hình + tự upload
+    pyperclip.copy("___cho___")            # đặt giá trị lạ vào clipboard để nhận ra link mới
+    pyautogui.hotkey("ctrl", "`")
+    log.info("[%s] Đã bấm Ctrl+` , chờ LightShot upload...", account_id)
+
+    # 3) Link đã được bôi đen sẵn trong ô góc phải
+    #    -> lặp Ctrl+C tới khi clipboard có link prnt.sc
+    link = ""
+    deadline = time.time() + UPLOAD_WAIT_SECONDS
+    while time.time() < deadline:
+        time.sleep(1)
+        pyautogui.hotkey("ctrl", "c")
+        clip = pyperclip.paste().strip()
+        if clip.startswith("http") and ("prnt.sc" in clip or "prntscr" in clip):
+            link = clip
+            break
+    if not link:
+        raise RuntimeError("Không lấy được link từ clipboard (LightShot chưa upload xong?)")
+    log.info("[%s] Link ảnh -> %s", account_id, link)
+    return link
+
+
+def main() -> None:
+    account_ids = read_account_ids()
+    out_dir = Path(OUTPUT_DIR)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    label = last_month_label()
+    from_d, to_d = last_month_range_ymd()
+    log.info("PHASE 1 — tháng %s (%s_%s), %d tài khoản.", label, from_d, to_d, len(account_ids))
+
+    # Đưa chuột vào GÓC TRÊN-TRÁI màn hình để DỪNG khẩn cấp
+    pyautogui.FAILSAFE = True
+
+    links_path = out_dir / f"links_anh_{label}.txt"
+    ok, fail = 0, 0
+
+    with sync_playwright() as p, links_path.open("w", encoding="utf-8") as lf:
+        lf.write("Account ID\tLink ảnh (prnt.sc)\n")
+
+        context = p.chromium.launch_persistent_context(
+            PROFILE_DIR, channel="chrome", headless=False,
+            no_viewport=True, args=["--start-maximized"],
+        )
+
+        for account_id in account_ids:
+            page = context.new_page()
+            link = "—"
+            try:
+                link = capture_and_get_link(page, account_id, from_d, to_d)
+                ok += 1
+            except pyautogui.FailSafeException:
+                raise                       # đưa chuột vào góc = dừng khẩn cấp toàn bộ
+            except Exception as e:
+                link = "LỖI"
+                fail += 1
+                log.error("[%s] LỖI: %s", account_id, e)
+            finally:
+                lf.write(f"{account_id}\t{link}\n")
+                lf.flush()
+                page.close()
+
+        log.info("XONG. Lấy được link: %d | Lỗi: %d", ok, fail)
+        log.info("File link: %s", links_path)
+        input("Nhấn Enter để đóng trình duyệt...")   # bỏ dòng này khi hẹn lịch tự động
+        context.close()
+
+
+if __name__ == "__main__":
+    main()
+```
+
+---
+
+## 3. Chạy thử (TEST với 1 ID trước)
+
+1. Đảm bảo **LightShot đang chạy**, và **đóng** mọi Chrome/tool đang dùng `D:\AdsBotProfile`.
+2. Để `account_ids.txt` chỉ có **một ID**.
+3. Chạy:
+```bash
+cd /d E:\PythonTool
+venv\Scripts\activate
+python phase1_screenshot.py
+```
+4. Ngồi yên quan sát (đừng đụng chuột/bàn phím): Chrome mở Ads Manager → chờ ~10s → script tự bấm Ctrl+` → LightShot chụp + upload → script lấy link.
+
+**Kiểm tra:** mở file `links_anh_<tháng>.txt` trong `D:\openChorm` xem có link `prnt.sc` không; mở thử link đó trên trình duyệt xem đúng ảnh màn hình Ads Manager không.
+
+---
+
+## 4. Chạy cho cả danh sách
+
+Khi 1 ID chạy ổn, mở `account_ids.txt`, dán thêm các ID khác (mỗi dòng một ID), lưu lại, rồi chạy lại script. Nó xử lý lần lượt; ID nào không lấy được link sẽ ghi một dòng "LỖI" để giữ đúng thứ tự.
+
+---
+
+## Phụ lục A — Lưu ý dùng cmd
+- Đổi sang ổ E: phải có `/d`: `cd /d E:\PythonTool`.
+- Nếu gõ `playwright ...` báo không nhận: thêm `python -m`.
+- Nếu PowerShell chặn lệnh `activate`: dùng **Command Prompt (cmd)**.
+
+## Phụ lục B — Lỗi thường gặp & cách chỉnh
+- **Không khởi chạy được / profile bị khóa:** đóng hết Chrome và tool đang dùng `D:\AdsBotProfile`.
+- **Bị đăng xuất Facebook:** mở profile để đăng nhập lại (đóng các Chrome khác trước), xong đóng rồi chạy lại:
+  ```bash
+  "C:\Program Files\Google\Chrome\Application\chrome.exe" --user-data-dir="D:\AdsBotProfile"
+  ```
+- **Ảnh chụp ra khi Ads Manager chưa load xong:** tăng `SCREENSHOT_WAIT_MS` (ví dụ `15_000`).
+- **Không lấy được link (báo "chưa upload xong"):** mạng chậm → tăng `UPLOAD_WAIT_SECONDS`. Cũng kiểm tra trong Settings LightShot đã bật chụp full màn hình + tự upload chưa.
+- **Ctrl+` không kích hoạt LightShot:** kiểm tra LightShot đang chạy và đúng phím tắt; nếu cần, thử thay `pyautogui.hotkey("ctrl", "`")` bằng:
+  ```python
+  pyautogui.keyDown("ctrl"); pyautogui.press("`"); pyautogui.keyUp("ctrl")
+  ```
+- **LightShot chụp nhầm cửa sổ khác (Chrome không lên trên cùng):** Windows đôi khi chặn việc "cướp" focus. Báo tôi, tôi sẽ thay `bring_chrome_to_front` bằng cách gọi Win32 `SetForegroundWindow` (qua `pywin32`) cho mạnh tay hơn.
+- **Dừng giữa chừng:** đưa chuột vào góc trên-trái màn hình, hoặc Ctrl+C ở cửa sổ lệnh.
+
+## Phụ lục C — Bảo mật
+- `D:\AdsBotProfile` chứa phiên đăng nhập Facebook → giữ kín, không chia sẻ, không đẩy lên git.
+- File `account_ids.txt`, `links_anh_*.txt` và script thì bình thường.

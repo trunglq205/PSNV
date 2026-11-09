@@ -1,5 +1,7 @@
-Severity	Code	Description	Project	File	Line	Suppression State	Details
-Error (active)	CS1061	'Result<List<ReturnBackRequestDto>>' does not contain a definition for 'Message' and no accessible extension method 'Message' accepting a first argument of type 'Result<List<ReturnBackRequestDto>>' could be found (are you missing a using directive or an assembly reference?)	Swms.FinishGoods.Web	D:\SWMS_FinishGood\WEB_API\src\Swms.FinishGoods.Web\Features\ReturnInstructions\App\Pages\ReturnBackRequests.razor.cs	156		
-Error (active)	CS1061	'Result<List<BackAvailableModelDto>>' does not contain a definition for 'Message' and no accessible extension method 'Message' accepting a first argument of type 'Result<List<BackAvailableModelDto>>' could be found (are you missing a using directive or an assembly reference?)	Swms.FinishGoods.Web	D:\SWMS_FinishGood\WEB_API\src\Swms.FinishGoods.Web\Features\ReturnInstructions\App\Pages\ReturnBackRequests.razor.cs	313		
-Error (active)	CS1061	'Result<ReturnBackRequestDto>' does not contain a definition for 'Message' and no accessible extension method 'Message' accepting a first argument of type 'Result<ReturnBackRequestDto>' could be found (are you missing a using directive or an assembly reference?)	Swms.FinishGoods.Web	D:\SWMS_FinishGood\WEB_API\src\Swms.FinishGoods.Web\Features\ReturnInstructions\App\Pages\ReturnBackRequests.razor.cs	388		
-Error (active)	CS1061	'Result<ReturnBackRequestDto>' does not contain a definition for 'Message' and no accessible extension method 'Message' accepting a first argument of type 'Result<ReturnBackRequestDto>' could be found (are you missing a using directive or an assembly reference?)	Swms.FinishGoods.Web	D:\SWMS_FinishGood\WEB_API\src\Swms.FinishGoods.Web\Features\ReturnInstructions\App\Pages\ReturnBackRequests.razor.cs	462		
+1. Da bo sung 13 cot back_* tren wms.return_instructions
+   + ck_ri_back_status
+   + ix_ri_back_status
+Msg 5074, Level 16, State 1, Line 1
+The object 'fk_rbd_req' is dependent on column 'request_id'.
+Msg 4922, Level 16, State 9, Line 1
+ALTER TABLE DROP COLUMN request_id failed because one or more objects access this column.

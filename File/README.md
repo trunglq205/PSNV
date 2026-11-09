@@ -1,9 +1,10 @@
--- 1. Check trước
-SELECT * FROM tblKittingLine WHERE CreatedBy = 'your_user_id' AND CAST(CreatedDate AS DATE) = CAST(GETDATE() AS DATE);
-SELECT * FROM tblKittingListDetail WHERE CreatedBy = 'your_user_id' AND CAST(CreatedDate AS DATE) = CAST(GETDATE() AS DATE);
-SELECT * FROM tblKittingList WHERE CreatedBy = 'your_user_id' AND CAST(CreatedDate AS DATE) = CAST(GETDATE() AS DATE);
-
--- 2. Xóa đúng thứ tự (con trước, cha sau)
-DELETE FROM tblKittingLine WHERE CreatedBy = 'your_user_id' AND CAST(CreatedDate AS DATE) = CAST(GETDATE() AS DATE);
-DELETE FROM tblKittingListDetail WHERE CreatedBy = 'your_user_id' AND CAST(CreatedDate AS DATE) = CAST(GETDATE() AS DATE);
-DELETE FROM tblKittingList WHERE CreatedBy = 'your_user_id' AND CAST(CreatedDate AS DATE) = CAST(GETDATE() AS DATE);
+Severity	Code	Description	Project	File	Line	Suppression State	Details
+Error (active)	CS0246	The type or namespace name 'IReturnBackRequestService' could not be found (are you missing a using directive or an assembly reference?)	Swms.FinishGoods.API	D:\SWMS_FinishGood\WEB_API\src\Swms.FinishGoods.API\Features\ReturnInstructions\ReturnInstructionModule.cs	14		
+Error (active)	CS0246	The type or namespace name 'ReturnBackRequestService' could not be found (are you missing a using directive or an assembly reference?)	Swms.FinishGoods.API	D:\SWMS_FinishGood\WEB_API\src\Swms.FinishGoods.API\Features\ReturnInstructions\ReturnInstructionModule.cs	14		
+Error (active)	CS0246	The type or namespace name 'IReturnBackRequestRepository' could not be found (are you missing a using directive or an assembly reference?)	Swms.FinishGoods.API	D:\SWMS_FinishGood\WEB_API\src\Swms.FinishGoods.API\Features\ReturnInstructions\ReturnInstructionModule.cs	15		
+Error (active)	CS0246	The type or namespace name 'ReturnBackRequestRepository' could not be found (are you missing a using directive or an assembly reference?)	Swms.FinishGoods.API	D:\SWMS_FinishGood\WEB_API\src\Swms.FinishGoods.API\Features\ReturnInstructions\ReturnInstructionModule.cs	15		
+Error (active)	CS0246	The type or namespace name 'IReturnFaPalletService' could not be found (are you missing a using directive or an assembly reference?)	Swms.FinishGoods.API	D:\SWMS_FinishGood\WEB_API\src\Swms.FinishGoods.API\Features\ReturnInstructions\ReturnInstructionModule.cs	20		
+Error (active)	CS0246	The type or namespace name 'ReturnFaPalletService' could not be found (are you missing a using directive or an assembly reference?)	Swms.FinishGoods.API	D:\SWMS_FinishGood\WEB_API\src\Swms.FinishGoods.API\Features\ReturnInstructions\ReturnInstructionModule.cs	20		
+Error (active)	CS0246	The type or namespace name 'IReturnBackRequestApi' could not be found (are you missing a using directive or an assembly reference?)	Swms.FinishGoods.Web	D:\SWMS_FinishGood\WEB_API\src\Swms.FinishGoods.Web\Features\ReturnInstructions\ReturnInstructionModule.cs	23		
+Error (active)	CS0246	The type or namespace name 'IReturnBackRequestBusiness' could not be found (are you missing a using directive or an assembly reference?)	Swms.FinishGoods.Web	D:\SWMS_FinishGood\WEB_API\src\Swms.FinishGoods.Web\Features\ReturnInstructions\ReturnInstructionModule.cs	24		
+Error (active)	CS0246	The type or namespace name 'ReturnBackRequestBusiness' could not be found (are you missing a using directive or an assembly reference?)	Swms.FinishGoods.Web	D:\SWMS_FinishGood\WEB_API\src\Swms.FinishGoods.Web\Features\ReturnInstructions\ReturnInstructionModule.cs	24		

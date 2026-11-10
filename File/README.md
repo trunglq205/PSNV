@@ -1,11 +1,11 @@
--- Bước 1: tìm KittingListDetailId của mã này ngày 6/11
-SELECT kld.Id, kld.Material, kl.Deliverydate
-FROM tblKittingList kl
-JOIN tblKittingListDetail kld ON kld.KittingListId = kl.Id
-WHERE kld.Material = 'ZM2NS221W276-H'
-  AND CAST(kl.Deliverydate AS DATE) = '2026-11-06';
+SQL Server parse and compile time: 
+   CPU time = 94 ms, elapsed time = 98 ms.
 
-  -- Bước 2: đo thời gian SP (thay <id> bằng id lấy ở trên)
-SET STATISTICS TIME ON;
-EXEC GetKittingListDetailByIdCustom @id = <id>;
-SET STATISTICS TIME OFF;
+ SQL Server Execution Times:
+   CPU time = 0 ms,  elapsed time = 0 ms.
+
+ SQL Server Execution Times:
+   CPU time = 16 ms,  elapsed time = 9 ms.
+
+ SQL Server Execution Times:
+   CPU time = 110 ms,  elapsed time = 108 ms.

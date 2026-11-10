@@ -1,1 +1,11 @@
-BC;ZM2NS221W276-H;25;VR01;1A10;Big ;Moving;22026100314;VB003;40;6;9f933af4-b4f1-47ef-b56c-0938b455b09e
+-- Bước 1: tìm KittingListDetailId của mã này ngày 6/11
+SELECT kld.Id, kld.Material, kl.Deliverydate
+FROM tblKittingList kl
+JOIN tblKittingListDetail kld ON kld.KittingListId = kl.Id
+WHERE kld.Material = 'ZM2NS221W276-H'
+  AND CAST(kl.Deliverydate AS DATE) = '2026-11-06';
+
+  -- Bước 2: đo thời gian SP (thay <id> bằng id lấy ở trên)
+SET STATISTICS TIME ON;
+EXEC GetKittingListDetailByIdCustom @id = <id>;
+SET STATISTICS TIME OFF;

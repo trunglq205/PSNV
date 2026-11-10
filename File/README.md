@@ -1,1 +1,1 @@
-flutter build apk --debug --flavor dev --dart-define-from-file=lib/config/dev.json
+BC;ZM2NS221W276-H;25;VR01;1A10;Big ;Moving;22026100314;VB003;40;6;9f933af4-b4f1-47ef-b56c-0938b455b09e

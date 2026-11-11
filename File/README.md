@@ -1,5 +1,4 @@
-The type or namespace name 'IDbConnection' could not be found (are you missing a using directive or an assembly reference?)
-Argument 1: cannot convert from 'System.Data.IDbConnection' to 'IDbConnection'
-Argument 2: cannot convert from 'System.Data.IDbTransaction' to 'IDbTransaction'
-The type or namespace name 'IDbConnection' could not be found (are you missing a using directive or an assembly reference?)
-The type or namespace name 'IDbTransaction' could not be found (are you missing a using directive or an assembly reference?)
+Severity	Code	Description	Project	File	Line	Suppression State	Details
+Error (active)	CS0103	The name 'doc' does not exist in the current context	Swms.FinishGoods.Web	D:\SWMS_FinishGood\WEB_API\src\Swms.FinishGoods.Web\Features\ReturnInstructions\App\Pages\ReworkRefurbish.razor	1041		
+Error (active)	CS0136	A local or parameter named 'd' cannot be declared in this scope because that name is used in an enclosing local scope to define a local or parameter	Swms.FinishGoods.Web	D:\SWMS_FinishGood\WEB_API\src\Swms.FinishGoods.Web\Features\ReturnInstructions\App\Pages\ReworkRefurbish.razor	118		
+Warning (active)	CS8604	Possible null reference argument for parameter 'localizedString' in 'LocalizedString.implicit operator string?(LocalizedString localizedString)'.	Swms.FinishGoods.Web	D:\SWMS_FinishGood\WEB_API\src\Swms.FinishGoods.Web\Features\ReturnInstructions\App\Pages\ReworkRefurbish.razor	137		

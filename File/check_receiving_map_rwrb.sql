@@ -1,7 +1,11 @@
--- 1. WORK có còn dòng nào mang SafetyStock không?
-SELECT COUNT(*) AS Tong,
-       SUM(CASE WHEN SafetyStock IS NULL THEN 1 ELSE 0 END) AS SoDong_NULL
-FROM ZFMA0037_WORK WHERE DataSource = 0;
+Tong        SoDong_NULL
+----------- -----------
+700042      500
 
--- 2. EndValidDate hiện tại
-SELECT EndValidDate, IsOverride, OverrideEndValidDate FROM NumberColumnShow WHERE DataSource = 0;
+(1 row affected)
+
+EndValidDate         IsOverride OverrideEndValidDate
+-------------------- ---------- --------------------
+31-Jan-27            1          2027-01-31
+
+(1 row affected)

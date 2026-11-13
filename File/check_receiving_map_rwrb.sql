@@ -1,48 +1,7 @@
-USE [CrtiticalListDB]
-GO
-/****** Object:  StoredProcedure [dbo].[sp_UpdateInboundFromZMV029]    Script Date: 11/13/2026 2:26:18 PM ******/
-SET ANSI_NULLS ON
-GO
-SET QUOTED_IDENTIFIER ON
-GO
-ALTER PROCEDURE [dbo].[sp_UpdateInboundFromZMV029]
-AS
-BEGIN
-    SET NOCOUNT ON;
-    DECLARE @DataSource TINYINT = 0;
+-- 1. ZMV029_STG hiện có những cột gì?
+SELECT COLUMN_NAME, DATA_TYPE FROM INFORMATION_SCHEMA.COLUMNS
+WHERE TABLE_NAME = 'ZMV029_STG' ORDER BY ORDINAL_POSITION;
 
-    BEGIN TRY
-        BEGIN TRAN;
-
-        -- Xóa toàn bộ LA của Material+Plant có trong ZMV029_STG
-		DELETE FROM ZFMA0037_WORK 
-		WHERE Elm = 'LA' 
-		  AND DataSource = @DataSource
-		  AND EXISTS (
-			  SELECT 1 FROM ZMV029_STG z
-			  WHERE z.Plant = ZFMA0037_WORK.Plant
-				AND z.Material = ZFMA0037_WORK.Material
-		  );
-
-		-- Insert lại từ ZMV029_STG
-		INSERT INTO ZFMA0037_WORK (Plant, Material, ETA_PSNV, Elm, InboundQty, DataSource)
-		SELECT 
-			Plant,
-			Material,
-			CONVERT(NVARCHAR(20), DelivDate, 23) AS ETA_PSNV,
-			'LA',
-			InboundQty,
-			@DataSource
-		FROM ZMV029_STG
-		WHERE Plant IS NOT NULL 
-		  AND Material IS NOT NULL 
-		  AND InboundQty <> 0;
-
-        COMMIT TRAN;
-    END TRY
-    BEGIN CATCH
-        IF XACT_STATE() <> 0 ROLLBACK TRAN;
-        DECLARE @ErrMsg NVARCHAR(4000) = ERROR_MESSAGE();
-        RAISERROR('sp_UpdateInboundFromZMV029 failed: %s', 16, 1, @ErrMsg);
-    END CATCH
-END
+-- 2. File up chứa gì cho material đang soi?
+SELECT * FROM ZMV029_STG 
+WHERE Material = 'F1K1V106A010' AND Plant = 'VR01';

@@ -1,10 +1,25 @@
--- 1. Chạy đúng SP backend đang gọi
-EXEC GetFreelocationByBarcode @barcode = N'566560;H1001-3L10-P;24;61S0;VG01;VE014P;MW';
+ID          mahang                                             vitri                                              Barcode
+----------- -------------------------------------------------- -------------------------------------------------- ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
--- 2. Barcode và trạng thái khu tạm hiện tại của RC
-SELECT ReceivingCardID, Barcode, TemporaryAreaCode, CurrentQuantity
-FROM tblReceivingCard
-WHERE ReceivingCardID = 566560;
+ReceivingCardID      Barcode                                                                                                                                                                                                                                                          TemporaryAreaCode CurrentQuantity
+-------------------- ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- ----------------- ----------------------
+566560               566560;H1001-3L10-P;24;61S0;VG01;VE014P;MW                                                                                                                                                                                                                       PL148             24
 
--- 3. Nội dung SP, để biết nó đọc bảng nào và lọc theo điều kiện gì
-EXEC sp_helptext 'GetFreelocationByBarcode';
+(1 row affected)
+
+Text
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+CREATE PROCEDURE [dbo].[GetFreelocationByBarcode]
+	@barcode nvarchar(4000)
+AS  
+BEGIN
+	SET NOCOUNT ON;
+	SELECT ID,mahang,vitri,Barcode
+	FROM DM_FreeLocation 
+	WITH (NOLOCK)
+	WHERE Barcode = @barcode AND TTcheck2 <> 'nothing'
+END
+
+
+Completion time: 2026-11-17T13:52:40.1420814+07:00

@@ -1,31 +1,42 @@
 /* =====================================================================
-   THAY LẠI MẪU THƯ "HÀNG BẤT THƯỜNG" (RECEIVING_ABNORMAL)
+   ĐƯA MỘT PHIẾU HÀNG BẤT THƯỜNG TỪ "LEADER ĐÃ DUYỆT" VỀ LẠI NHÁP
    ---------------------------------------------------------------------
-   Dùng khi dòng RECEIVING_ABNORMAL trong master.email_events đang mang
-   nội dung TEST và cần thay bằng mẫu chuẩn.
+   Vì sao phải làm bằng SQL: luồng phiếu NG chỉ đi MỘT CHIỀU. Trong
+   INgReportService không có hàm nào mở lại phiếu — chỉ có
+   LeaderReviewAsync (submit / cancel), OqcConfirmAsync, FaConfirmAsync,
+   FinalizeAsync. Và LeaderReviewAsync chặn ngay ở dòng đầu:
+   `if (h.DocStatus != "draft") throw Ng.Err.NotWaitingLeader`. Nên phiếu
+   lỡ duyệt thì trên màn hình không còn đường nào lùi.
 
-   Vì sao cần script riêng: dev_seed_mail_roles.sql cố ý KHÔNG đè mẫu đã
-   có người sửa tay (updated_at IS NOT NULL) — soạn lại mà bị script đè
-   mất thì tệ hơn cả thiếu. Nội dung test cũng tính là "đã sửa tay", nên
-   chạy lại script kia sẽ bỏ qua. Script này đè có chủ đích.
+   Script này đảo lại ĐÚNG những gì bước duyệt đã ghi — đọc từ
+   NgReportRepository.ApplyStepAsync, nhánh `"leader" when action ==
+   "submit"`, không đoán:
 
-   HAI CHẾ ĐỘ — xem MỤC 2:
-     @HardDelete = 0  (MẶC ĐỊNH, nên dùng)
-         Ghi đè nội dung tại chỗ rồi xoá dấu sửa tay (updated_at = NULL).
-         Kết quả giống hệt xoá-rồi-thêm-lại, nhưng GIỮ NGUYÊN danh sách
-         người nhận và phân tầng loại lỗi đang gắn vào mã sự kiện này.
-     @HardDelete = 1
-         Xoá hẳn dòng rồi thêm lại. Chỉ làm được khi không có khoá ngoại
-         nào chặn; script tự kiểm và dừng nếu bị chặn. KHÔNG xoá người
-         nhận trong master.email_config — chúng dính theo mã sự kiện nên
-         dòng mới vẫn nhận lại đúng bộ cũ.
+     leader_status  N'submitted'          -> N'pending'
+     leader_by / _by_code / _at / _comment -> NULL
+     doc_status     N'in_review'          -> N'draft'
+     current_step   N'oqc_confirm' hoặc N'fa_confirm' -> N'created'
+     oqc_status     N'skipped' (do bước này đặt) -> N'pending'
 
-   Nội dung mẫu: CHÉP NGUYÊN từ dev_seed_mail_roles.sql, không soạn lại,
-   để hai script không bao giờ lệch nhau. Chín biến đúng theo
-   NgReportService.Fill(): {DocNo} {PalletCode} {Model} {NgType}
-   {Description} {LeaderBy} {DiscoveredAt} {Now} {Link}.
+   Giá trị đích lấy từ DEFAULT của bảng lúc tạo phiếu (doc_status
+   N'draft', current_step N'created', ba cột *_status N'pending').
 
-   An toàn: chỉ chạy trên DB có tên kết thúc bằng _DEV.
+   ⚠ MAIL ĐÃ GỬI THÌ KHÔNG THU HỒI ĐƯỢC. Bước 2 duyệt xong là
+   NotifyLeaderApprovedAsync bắn mail cho OQC và FA. MỤC 5 cho biết có
+   bao nhiêu người nhận đang khai — bằng 0 nghĩa là không ai nhận được
+   gì và anh yên tâm; khác 0 thì nên báo họ một câu là phiếu làm lại.
+
+   An toàn
+     • Chỉ chạy trên DB có tên kết thúc bằng _DEV.
+     • Chỉ đụng ĐÚNG MỘT phiếu. Khớp từ hai phiếu trở lên là DỪNG, bắt
+       khai rõ số phiếu — không tự chọn hộ.
+     • OQC hoặc FA đã có ý kiến thì DỪNG, không lùi. Lùi lúc đó là xoá
+       mất kết luận của người khác.
+     • Cả phần sửa nằm trong một transaction.
+
+   Cách chạy: mở SSMS, chọn đúng DB _DEV, F5.
+   Phiếu nào: để @DocNo = NULL thì script tự tìm phiếu TẠO HÔM NAY đang
+   dừng ở bước Leader đã duyệt. Muốn chỉ đích danh thì điền số phiếu.
    ===================================================================== */
 
 SET NOCOUNT ON;
@@ -41,197 +52,196 @@ BEGIN
 END
 GO
 
-/* =====================================================================
-   MỤC 1 — ĐANG CÓ GÌ (đọc trước khi ghi đè)
-   ===================================================================== */
-SELECT N'1. Hien trang truoc khi ghi de' AS section;
-
-SELECT  ma            = e.code,
-        dang_bat      = e.is_active,
-        da_sua_tay    = IIF(e.updated_at IS NULL, N'khong', N'CO'),
-        sua_luc       = e.updated_at,
-        sua_boi       = e.updated_by,
-        dai_tieu_de   = LEN(ISNULL(e.subject_template, N'')),
-        dai_than_thu  = LEN(ISNULL(e.body_template, N'')),
-        so_loai_loi   = (SELECT COUNT(*) FROM master.email_event_subtypes s
-                         WHERE s.event_code = e.code),
-        so_nguoi_nhan = (SELECT COUNT(*) FROM master.email_config c
-                         WHERE c.event_code = e.code AND c.is_deleted = 0)
-FROM    master.email_events e
-WHERE   e.code = N'RECEIVING_ABNORMAL';
-
-/* Xem nội dung đang có — để đối chiếu sau khi ghi đè. */
-SELECT  N'1b. Noi dung dang co' AS section,
-        tieu_de = e.subject_template,
-        than_thu_400_ky_tu_dau = LEFT(ISNULL(e.body_template, N'(rong)'), 400)
-FROM    master.email_events e
-WHERE   e.code = N'RECEIVING_ABNORMAL';
-
-IF NOT EXISTS (SELECT 1 FROM master.email_events WHERE code = N'RECEIVING_ABNORMAL')
-    PRINT N'1. Chua co dong RECEIVING_ABNORMAL — script se THEM MOI.';
-GO
+/* ===== THAM SỐ ===================================================== */
+DECLARE @DocNo       nvarchar(50) = NULL;          -- NULL = tự tìm phiếu hôm nay
+DECLARE @KeepHistory bit          = 0;             -- 1 = giữ lại dòng nhật ký duyệt
+DECLARE @Actor       nvarchar(100) = N'sql-rollback';
 
 /* =====================================================================
-   MỤC 2 — CHỌN CHẾ ĐỘ, RỒI GHI
+   MỤC 1 — TÌM PHIẾU
    ===================================================================== */
-SELECT N'2. Ghi lai mau thu' AS section;
+SELECT N'1. Tim phieu' AS section;
 
-DECLARE @HardDelete bit = 0;   -- đổi 1 nếu muốn xoá hẳn dòng rồi thêm lại
+DECLARE @id bigint, @n int = 0, @multi bit = 0;
 
-DECLARE @ng_subject nvarchar(500) =
-    N'[SWMS] Hàng bất thường {DocNo} — {NgType} · {Model}';
-
-DECLARE @ng_body nvarchar(max) = N'Kính gửi OQC và FA,
-
-Leader SCS đã duyệt phiếu hàng bất thường **{DocNo}**. Nhờ hai bộ phận vào SWMS
-kết luận và chọn hướng xử lý.
-
-| Thông tin | Nội dung |
-|---|---|
-| Số phiếu | **{DocNo}** |
-| Loại bất thường | {NgType} |
-| Model | {Model} |
-| Pallet ID | {PalletCode} |
-| Thời điểm phát hiện | {DiscoveredAt} |
-| Leader SCS duyệt | {LeaderBy} |
-
-**Mô tả hiện trạng**
-
-{Description}
-
-**Thứ tự xử lý**
-
-1. OQC kết luận trước: OK hoặc NG.
-2. FA chọn hướng xử lý: đổi hàng / chấp nhận / trả lại / huỷ.
-3. SCS Supervisor chốt phiếu ở bước cuối.
-
-FA chỉ chọn được hướng xử lý sau khi OQC đã kết luận.
-
-[Mở phiếu trong SWMS]({Link})
-
----
-
-Thư do SWMS Finish Goods gửi tự động lúc {Now}. Vui lòng không trả lời thư này.';
-
-DECLARE @ng_desc nvarchar(500) =
-    N'Hàng bất thường — Leader SCS duyệt xong bước 2, gửi OQC và FA cùng lúc.';
-
-/* ---- Giữ lại thứ tự hiển thị cũ, đừng để nó nhảy xuống cuối danh sách ---- */
-DECLARE @sort int = (SELECT sort_order FROM master.email_events
-                     WHERE code = N'RECEIVING_ABNORMAL');
-IF @sort IS NULL
-    SET @sort = (SELECT ISNULL(MAX(sort_order), 0) + 1
-                 FROM master.email_events WHERE module = N'RECEIVING');
-
-/* ---- Khoá ngoại nào đang trỏ vào bảng này ---- */
-DECLARE @fk int = (SELECT COUNT(*) FROM sys.foreign_keys
-                   WHERE referenced_object_id = OBJECT_ID(N'master.email_events'));
-DECLARE @con int =
-    (SELECT COUNT(*) FROM master.email_event_subtypes WHERE event_code = N'RECEIVING_ABNORMAL')
-  + (SELECT COUNT(*) FROM master.email_config        WHERE event_code = N'RECEIVING_ABNORMAL');
-
-IF @HardDelete = 1 AND @fk > 0 AND @con > 0
-BEGIN
-    PRINT N'2. DUNG LAI: @HardDelete = 1 nhung co khoa ngoai tro vao master.email_events';
-    PRINT CONCAT(N'   va dang con ', @con, N' dong con (loai loi + nguoi nhan).');
-    PRINT N'   Xoa dong su kien se hoac bi chan, hoac keo theo ca cau hinh nguoi nhan.';
-    PRINT N'   Dung @HardDelete = 0 — ket qua giong het, ma khong dong vao nguoi nhan.';
-END
+IF @DocNo IS NOT NULL
+    SELECT @id = id FROM wms.ng_inspections
+    WHERE doc_no = @DocNo AND is_deleted = 0;
 ELSE
 BEGIN
+    /* Đúng cái anh mô tả: tạo hôm nay, đang đứng ở bước Leader đã duyệt
+       và chưa ai đụng tiếp. */
+    SELECT @id = MIN(id) FROM wms.ng_inspections
+    WHERE is_deleted = 0
+      AND CAST(created_at AS date) = CAST(GETDATE() AS date)
+      AND doc_status    = N'in_review'
+      AND leader_status = N'submitted'
+      AND fa_status     = N'pending'
+      AND oqc_status IN (N'pending', N'skipped');
+
+    SET @n = (SELECT COUNT(*) FROM wms.ng_inspections
+                      WHERE is_deleted = 0
+                        AND CAST(created_at AS date) = CAST(GETDATE() AS date)
+                        AND doc_status    = N'in_review'
+                        AND leader_status = N'submitted'
+                        AND fa_status     = N'pending'
+                        AND oqc_status IN (N'pending', N'skipped'));
+
+    IF @n > 1
+    BEGIN
+        PRINT CONCAT(N'1. DUNG LAI: hom nay co ', @n, N' phieu cung o buoc nay.');
+        PRINT N'   Chon mot so phieu trong bang duoi roi dien vao @DocNo, chay lai.';
+        SET @id = NULL;
+        SET @multi = 1;
+
+        SELECT  N'1b. Cac phieu dang khop' AS section,
+                so_phieu = doc_no, tao_luc = created_at, tao_boi = created_by,
+                loai_loi = ng_type, duyet_luc = leader_at, duyet_boi = leader_by
+        FROM    wms.ng_inspections
+        WHERE   is_deleted = 0
+          AND   CAST(created_at AS date) = CAST(GETDATE() AS date)
+          AND   doc_status    = N'in_review'
+          AND   leader_status = N'submitted'
+          AND   fa_status     = N'pending'
+          AND   oqc_status IN (N'pending', N'skipped')
+        ORDER   BY created_at;
+    END
+END
+
+IF @id IS NULL AND @DocNo IS NOT NULL
+    PRINT N'1. DUNG LAI: khong tim thay phieu mang so do (hoac da bi xoa mem).';
+ELSE IF @id IS NULL AND @DocNo IS NULL AND @multi = 0
+    PRINT N'1. Khong co phieu nao tao hom nay dang dung o buoc Leader da duyet.';
+
+/* Hiện trạng trước khi sửa */
+IF @id IS NOT NULL
+    SELECT  N'1c. Truoc khi sua' AS section,
+            so_phieu = doc_no, trang_thai = doc_status, buoc = current_step,
+            leader = leader_status, leader_boi = leader_by, leader_luc = leader_at,
+            leader_ghi_chu = leader_comment,
+            oqc = oqc_status, fa = fa_status,
+            tao_luc = created_at, tao_boi = created_by
+    FROM    wms.ng_inspections WHERE id = @id;
+
+/* =====================================================================
+   MỤC 2 — KIỂM TRA ĐIỀU KIỆN
+   ===================================================================== */
+SELECT N'2. Kiem tra dieu kien' AS section;
+
+DECLARE @stop nvarchar(400) = NULL;
+
+IF @id IS NOT NULL
+BEGIN
+    SELECT @stop =
+        CASE
+          WHEN doc_status = N'draft'
+               THEN N'Phieu DA o trang thai nhap roi — khong co gi de lui.'
+          WHEN doc_status IN (N'cancelled', N'finalized')
+               THEN N'Phieu da ' + doc_status + N' — khong lui bang script nay.'
+          WHEN leader_status <> N'submitted'
+               THEN N'leader_status = ' + leader_status + N', khong phai submitted.'
+          WHEN oqc_status NOT IN (N'pending', N'skipped')
+               THEN N'OQC DA ket luan (' + oqc_status + N'). Lui bay gio la xoa mat ket luan cua OQC.'
+          WHEN fa_status <> N'pending'
+               THEN N'FA DA chon huong xu ly (' + fa_status + N'). Lui bay gio la xoa mat quyet dinh cua FA.'
+          ELSE NULL
+        END
+    FROM wms.ng_inspections WHERE id = @id;
+
+    IF @stop IS NOT NULL
+    BEGIN
+        PRINT CONCAT(N'2. DUNG LAI: ', @stop);
+        SET @id = NULL;
+    END
+    ELSE PRINT N'2. Dieu kien dat — chi co buoc Leader can lui.';
+END
+ELSE PRINT N'2. Bo qua: MUC 1 chua chot duoc phieu nao.';
+
+/* =====================================================================
+   MỤC 3 — LÙI VỀ NHÁP
+   ===================================================================== */
+SELECT N'3. Lui ve nhap' AS section;
+
+IF @id IS NOT NULL
+BEGIN
+    /* Ghi lại dòng nhật ký sắp xoá, để kết quả chạy còn dấu vết. */
+    SELECT  N'3a. Dong nhat ky buoc leader' AS section,
+            buoc = step, hanh_dong = action, ghi_chu = comment,
+            boi = acted_by, luc = acted_at
+    FROM    wms.ng_inspection_approvals
+    WHERE   ng_id = @id AND step = N'leader';
+
     BEGIN TRAN;
 
-    IF @HardDelete = 1
-    BEGIN
-        DELETE FROM master.email_events WHERE code = N'RECEIVING_ABNORMAL';
-        PRINT CONCAT(N'2. Da xoa ', @@ROWCOUNT, N' dong cu.');
-    END
+    UPDATE  wms.ng_inspections
+    SET     doc_status     = N'draft',
+            current_step   = N'created',
+            leader_status  = N'pending',
+            leader_by      = NULL,
+            leader_by_code = NULL,
+            leader_at      = NULL,
+            leader_comment = NULL,
+            /* Chỉ trả 'skipped' về 'pending' — đó là giá trị do chính bước
+               duyệt đặt khi model không cần OQC. Giá trị khác là của OQC,
+               mà MỤC 2 đã chặn trường hợp đó rồi. */
+            oqc_status     = CASE WHEN oqc_status = N'skipped' THEN N'pending' ELSE oqc_status END,
+            updated_at     = SYSDATETIME(),
+            updated_by     = @Actor
+    WHERE   id = @id;
 
-    IF EXISTS (SELECT 1 FROM master.email_events WHERE code = N'RECEIVING_ABNORMAL')
-    BEGIN
-        /* Ghi đè tại chỗ. updated_at/by về NULL = "mau do script dat, chua
-           ai sua tay" — để lần sau dev_seed_mail_roles.sql lại tự cập nhật
-           được, không phải chạy script này nữa. */
-        UPDATE  master.email_events
-        SET     module           = N'RECEIVING',
-                name_key         = N'email.RECEIVING_ABNORMAL',
-                description      = @ng_desc,
-                subject_template = @ng_subject,
-                body_template    = @ng_body,
-                is_active        = 1,
-                updated_at       = NULL,
-                updated_by       = NULL
-        WHERE   code = N'RECEIVING_ABNORMAL';
+    PRINT CONCAT(N'3. Da dua ', @@ROWCOUNT, N' phieu ve nhap.');
 
-        PRINT CONCAT(N'2. Da ghi de noi dung cho ', @@ROWCOUNT, N' dong.');
-    END
-    ELSE
+    IF @KeepHistory = 0
     BEGIN
-        INSERT INTO master.email_events
-            (code, module, name_key, description, subject_template, body_template,
-             is_active, sort_order)
-        VALUES
-            (N'RECEIVING_ABNORMAL', N'RECEIVING', N'email.RECEIVING_ABNORMAL', @ng_desc,
-             @ng_subject, @ng_body, 1, @sort);
+        /* Xoá dòng duyệt, nếu không bảng lịch sử trên màn chi tiết hiện
+           "Leader duyet luc X" trong khi phieu dang la nhap — va duyet lai
+           se co hai dong leader. */
+        DELETE FROM wms.ng_inspection_approvals
+        WHERE  ng_id = @id AND step = N'leader';
 
-        PRINT N'2. Da them moi dong RECEIVING_ABNORMAL.';
+        PRINT CONCAT(N'3. Da xoa ', @@ROWCOUNT, N' dong nhat ky buoc leader.');
     END
+    ELSE PRINT N'3. Giu lai nhat ky buoc leader theo @KeepHistory = 1.';
 
     COMMIT;
 END
-GO
 
 /* =====================================================================
-   MỤC 3 — ĐỐI CHIẾU SAU KHI GHI
+   MỤC 4 — SAU KHI SỬA
    ===================================================================== */
-SELECT N'3. Sau khi ghi' AS section;
+IF @id IS NOT NULL
+    SELECT  N'4. Sau khi sua' AS section,
+            so_phieu = doc_no, trang_thai = doc_status, buoc = current_step,
+            leader = leader_status, leader_boi = leader_by, leader_luc = leader_at,
+            oqc = oqc_status, fa = fa_status,
+            sua_luc = updated_at, sua_boi = updated_by,
+            dung_chua = IIF(doc_status = N'draft' AND current_step = N'created'
+                            AND leader_status = N'pending' AND leader_at IS NULL,
+                            N'dung — sua lai va duyet lai duoc', N'*** CHUA DUNG ***'),
+            so_dong_nhat_ky = (SELECT COUNT(*) FROM wms.ng_inspection_approvals
+                               WHERE ng_id = @id)
+    FROM    wms.ng_inspections WHERE id = @id;
 
-SELECT  ma            = e.code,
-        dang_bat      = e.is_active,
-        da_sua_tay    = IIF(e.updated_at IS NULL, N'khong (dung)', N'CO'),
-        thu_tu        = e.sort_order,
-        dai_tieu_de   = LEN(ISNULL(e.subject_template, N'')),
-        dai_than_thu  = LEN(ISNULL(e.body_template, N'')),
-        gui_duoc_chua = CASE
-                          WHEN NULLIF(LTRIM(RTRIM(e.subject_template)), N'') IS NULL
-                            OR NULLIF(LTRIM(RTRIM(e.body_template)),    N'') IS NULL
-                               THEN N'*** CHUA — mau rong ***'
-                          WHEN (SELECT COUNT(*) FROM master.email_config c
-                                WHERE c.event_code = e.code
-                                  AND c.is_active = 1 AND c.is_deleted = 0) = 0
-                               THEN N'*** CHUA — chua khai nguoi nhan ***'
-                          ELSE N'duoc' END,
-        so_loai_loi   = (SELECT COUNT(*) FROM master.email_event_subtypes s
-                         WHERE s.event_code = e.code AND s.is_active = 1),
-        so_nguoi_nhan = (SELECT COUNT(*) FROM master.email_config c
-                         WHERE c.event_code = e.code
-                           AND c.is_active = 1 AND c.is_deleted = 0)
-FROM    master.email_events e
-WHERE   e.code = N'RECEIVING_ABNORMAL';
-
-/* Đủ chín biến chưa — thiếu biến nào thì chỗ đó trong thư sẽ trống. */
-SELECT  N'3b. Bien trong mau' AS section,
-        bien = v.b,
-        co_trong_than_thu = IIF(e.body_template LIKE N'%' + v.b + N'%', N'co', N'khong'),
-        co_trong_tieu_de  = IIF(e.subject_template LIKE N'%' + v.b + N'%', N'co', N'khong')
-FROM    master.email_events e
-CROSS   JOIN (VALUES (N'{DocNo}'), (N'{PalletCode}'), (N'{Model}'), (N'{NgType}'),
-                     (N'{Description}'), (N'{LeaderBy}'), (N'{DiscoveredAt}'),
-                     (N'{Now}'), (N'{Link}')) v(b)
-WHERE   e.code = N'RECEIVING_ABNORMAL';
-
-SELECT  N'3c. Noi dung moi' AS section,
-        tieu_de  = e.subject_template,
-        than_thu = e.body_template
-FROM    master.email_events e
-WHERE   e.code = N'RECEIVING_ABNORMAL';
+/* =====================================================================
+   MỤC 5 — MAIL ĐÃ GỬI CHƯA
+   ===================================================================== */
+SELECT  N'5. Mail buoc 2' AS section,
+        so_nguoi_nhan_dang_khai =
+            (SELECT COUNT(*) FROM master.email_config
+             WHERE event_code = N'RECEIVING_ABNORMAL' AND is_active = 1 AND is_deleted = 0),
+        co_mau_thu =
+            IIF(EXISTS (SELECT 1 FROM master.email_events
+                        WHERE code = N'RECEIVING_ABNORMAL'
+                          AND NULLIF(LTRIM(RTRIM(subject_template)), N'') IS NOT NULL
+                          AND NULLIF(LTRIM(RTRIM(body_template)),    N'') IS NOT NULL),
+                N'co', N'chua'),
+        ghi_chu = N'Khong co nguoi nhan HOAC chua co mau thu = khong mail nao duoc gui.';
 GO
 
 PRINT N'';
 PRINT N'=== XONG ===';
-PRINT N'Mau thu da thay. Mail van chi gui khi DA KHAI NGUOI NHAN:';
-PRINT N'Web > Hang bat thuong > banh rang > Cau hinh email.';
-PRINT N'Thu thu bang nut Xem truoc mail trong man phieu.';
+PRINT N'Phieu ve nhap thi man chi tiet lai hien nut Sua va nut Leader duyet.';
+PRINT N'Mail da gui thi khong thu hoi duoc — xem MUC 5.';
 PRINT N'';
 GO
 

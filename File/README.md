@@ -1,3 +1,2 @@
-Cách A: đây là năng lực đóng container FCL của kho, giảm dần khi kho phải đóng nhiều hàng lẻ. Ví dụ ngày 20/07 kho PSNV có 12 pallet hàng lẻ, rơi vào nhóm 6~29, nên hôm đó kho chỉ đóng được tối đa 3 cont 40H. Nếu lịch xếp 5 cont vào ngày đó thì vượt 2 cont, phải dời 2 cont sang ngày làm việc trước đó.
-
-Cách B (theo câu trong Rule Optimize: "lấy tổng pallet hàng AIR+LCL+TRUCK… convert total 40H theo master WH capacity"): đây là bảng quy đổi pallet hàng lẻ ra số 40H tương đương, rồi cộng với cont FCL để so với năng lực kho. Nhưng nếu hiểu như vậy thì "≤5 pallet = 4×40H" lại vô lý, vì 5 pallet không thể bằng 4 container. Vì thế mình nghiêng về cách A.
+OBE và UKB có cùng là Kobe không? Nếu cùng thì thống nhất dùng một mã.
+TYO/UKB nghĩa là model đó có thể đi một trong hai cảng? Vậy chọn cảng nào: theo PO/Demand, hay theo cảng có tàu sớm hơn? (Rule ETD có câu "1 model xuất nhiều destination thì lấy lịch tàu của destination sớm nhất", có thể chính là trường hợp này.)

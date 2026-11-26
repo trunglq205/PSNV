@@ -1,21 +1,20 @@
--- 1. Nguồn gây lỗi khi kitting
-CREATE TABLE #over (RCID bigint, Barcode nvarchar(500), DeliveryDate datetime, DeliveryDateOver datetime,
-                    Material nvarchar(100), Status nvarchar(50), Type_Check nvarchar(50), Times_Check int,
-                    Date_Check datetime, Type nvarchar(50), Location nvarchar(100), Category nvarchar(50));
-INSERT INTO #over EXEC GetMaterialOverOneYear;
 
-SELECT 'GetMaterialOverOneYear' AS Nguon, RCID, Barcode, Status, Type_Check, Times_Check,
-       Date_Check, DATEADD(YEAR, 1, Date_Check) AS HanSauCheck, DeliveryDateOver, Location, Category
-FROM #over
-WHERE RCID = 84387 OR Material = 'D4CAY5R00001';
+(14786 rows affected)
+Nguon                  RCID                 Barcode                                                                                                                                                                                                                                                          Status                                             Type_Check                                         Times_Check Date_Check              HanSauCheck             DeliveryDateOver        Location                                                                                             Category
+---------------------- -------------------- ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- -------------------------------------------------- -------------------------------------------------- ----------- ----------------------- ----------------------- ----------------------- ---------------------------------------------------------------------------------------------------- --------------------------------------------------
+GetMaterialOverOneYear 184387               184387;D4CAY5R00001;9999;9S70;VE01;VB014Y;SB                                                                                                                                                                                                                     OK                                                 NULL                                               NULL        2025-11-17 00:00:00.000 2026-11-17 00:00:00.000 2025-12-13 00:00:00.000 1.S02B.4.02                                                                                          SB
 
--- 2. Nguồn lần check lại theo barcode
-CREATE TABLE #dm (Barcode nvarchar(500), DateCheck datetime);
-INSERT INTO #dm EXEC GetDM_Freelocation_By_Checked;
+(1 row affected)
 
-SELECT 'GetDM_Freelocation_By_Checked' AS Nguon, Barcode, DateCheck
-FROM #dm
-WHERE Barcode LIKE '84387;%' OR Barcode LIKE '%;D4CAY5R00001;%'
-ORDER BY DateCheck DESC;
+(124929 rows affected)
 
-DROP TABLE #over, #dm;
+Nguon                         Barcode                                                                                                                                                                                                                                                          DateCheck
+----------------------------- ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- -----------------------
+GetDM_Freelocation_By_Checked 184387;D4CAY5R00001;9999;9S70;VE01;VB014Y;SB                                                                                                                                                                                                                     2025-11-17 00:00:00.000
+GetDM_Freelocation_By_Checked 110831;D4CAY5R00001;10000;5S70;VB01;VB014Y;SB                                                                                                                                                                                                                    2024-12-13 00:00:00.000
+GetDM_Freelocation_By_Checked 96108;D4CAY5R00001;100;5S20;VB01;VB027;SB                                                                                                                                                                                                                        2024-11-25 00:00:00.000
+
+(3 rows affected)
+
+
+Completion time: 2026-11-26T16:47:49.1986665+07:00

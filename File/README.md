@@ -1,93 +1,163 @@
-USE [CrtiticalListDB]
-GO
-/****** Object:  StoredProcedure [dbo].[sp_InsertZFMA0037_Work]    Script Date: 11/27/2026 9:26:04 AM ******/
-SET ANSI_NULLS ON
-GO
-SET QUOTED_IDENTIFIER ON
-GO
-ALTER   PROCEDURE [dbo].[sp_InsertZFMA0037_Work]
-    @EndValidDate DATE,
-    @IsMR         BIT,
-    @DataSource   TINYINT = 0
-AS
-BEGIN
-    SET NOCOUNT ON;
+try
+{
+    // ========== VALIDATE ==========
+    if (inboundFile == null || inboundFile.Length == 0)
+        return Json(new { success = false, message = "Vui lòng chọn file ZMV029." });
 
-    ALTER INDEX ALL ON ZFMA0037_WORK DISABLE;
+    if (vendorConfirmFile == null || vendorConfirmFile.Length == 0)
+        return Json(new { success = false, message = "Vui lòng chọn file ZMV132." });
 
-    DELETE FROM ZFMA0037_WORK WHERE DataSource = @DataSource;
+    var extension = Path.GetExtension(vendorConfirmFile.FileName).ToLower();
+    if (extension != ".csv")
+        return Json(new { success = false, message = "File ZMV132 phải là định dạng .csv" });
 
-    SELECT 
-        s.Material,
-        s.Plant,
-        TRY_CONVERT(DATE, REPLACE(s.ETA_PSNV, '/', '-')) AS ETA_PSNV,
-        s.Elm,
-        s.InboundQty,
-        s.SafetyStock,
-        s.[Type],
-        ROW_NUMBER() OVER (PARTITION BY s.Material, s.Plant ORDER BY s.RowId) AS rn
-    INTO #OrderedData
-    FROM ZFMA0037_STG s;
+    // ========== XỬ LÝ ZMV029 (Excel) ==========
+    using var stream = new MemoryStream();
+    await inboundFile.CopyToAsync(stream);
+    using var workbook = new XLWorkbook(stream);
+    var ws = workbook.Worksheet(1);
+    var rows = ws.RangeUsed().RowsUsed().Skip(1);
 
-    CREATE NONCLUSTERED INDEX IX_Ordered_Material ON #OrderedData(Material, Plant, Elm);
+    var data = new List<(string Plant, string Vendor, string DelivDate, string Material, string InboundQty)>();
+    foreach (var row in rows)
+    {
+        var plant = row.Cell(1).GetString().Trim();
+        var vendor = row.Cell(2).GetString().Trim();
+        var delivDate = row.Cell(6).GetString().Trim();
+        var material = row.Cell(8).GetString().Trim();
+        var inboundQty = row.Cell(9).GetString().Trim();
 
-    SELECT Material, Plant, MIN(rn) AS LB_rn
-    INTO #LB_Pos
-    FROM #OrderedData
-    WHERE Elm = 'LB'
-    GROUP BY Material, Plant;
+        if (string.IsNullOrEmpty(plant) || string.IsNullOrEmpty(material))
+            continue;
 
-    CREATE NONCLUSTERED INDEX IX_LB_Material ON #LB_Pos(Material, Plant);
+        data.Add((plant, vendor, delivDate, material, inboundQty));
+    }
 
-    DECLARE @PrefixList TABLE (Prefix NVARCHAR(10));
-    INSERT INTO @PrefixList VALUES ('SS'),('SACE'),('SCCD'),('SGCC'),('SNSA'),('SPCM'),('SUS'),('SGCD'),('SI'),('ZM');
+    if (!data.Any())
+        return Json(new { success = false, message = "Không có dữ liệu hợp lệ trong file ZMV029." });
 
-    INSERT INTO ZFMA0037_WORK (Material, Plant, ETA_PSNV, Elm, InboundQty, SafetyStock, Vendor, DataSource)
-    SELECT 
-        o.Material, 
-        o.Plant, 
-        o.ETA_PSNV, 
-        o.Elm, 
-        -- Quy đổi g -> kg cho Material bắt đầu bằng ZM
-        CASE WHEN o.Material LIKE 'ZM%' THEN o.InboundQty  / 1000.0 ELSE o.InboundQty  END AS InboundQty,
-        CASE WHEN o.Material LIKE 'ZM%' THEN o.SafetyStock / 1000.0 ELSE o.SafetyStock END AS SafetyStock, 
-		o.fix
-        @DataSource
-    FROM #OrderedData o
-    LEFT JOIN ZFMA0035_WORK v ON o.Material = v.Material AND o.Plant = v.Plant AND v.DataSource = @DataSource
-    LEFT JOIN ZFMA0033_WORK m ON o.Material = m.Material AND o.Plant = m.Plant AND m.DataSource = @DataSource
-    LEFT JOIN #LB_Pos lb      ON o.Material = lb.Material AND o.Plant = lb.Plant
-    WHERE (m.MaterialDescription IS NULL OR m.MaterialDescription NOT IN ('Recycle', 'Recycle resin', 'Resin recycle'))
-      AND o.InboundQty <> 0
-      AND (
-            o.Elm = 'WB'
-            OR (
-                o.Elm IN ('LA','BB','SB')
-                AND (o.[Type] = 'ROH' OR (o.[Type] = 'HALB' AND RIGHT(o.Material, 2) = '-P'))
-                AND o.ETA_PSNV <= @EndValidDate
-                AND (
-                    NOT EXISTS (SELECT 1 FROM @PrefixList p WHERE o.Material LIKE p.Prefix + '%')
-                    OR
-                    (EXISTS (SELECT 1 FROM @PrefixList p WHERE o.Material LIKE p.Prefix + '%') 
-                     AND lb.LB_rn IS NOT NULL AND o.rn < lb.LB_rn)
-                )
-            )
-            OR (
-                o.Elm = 'MR'
-                AND @IsMR = 1
-                AND (o.[Type] = 'ROH' OR (o.[Type] = 'HALB' AND RIGHT(o.Material, 2) = '-P'))
-                AND o.ETA_PSNV <= @EndValidDate
-                AND (
-                    NOT EXISTS (SELECT 1 FROM @PrefixList p WHERE o.Material LIKE p.Prefix + '%')
-                    OR
-                    (EXISTS (SELECT 1 FROM @PrefixList p WHERE o.Material LIKE p.Prefix + '%') 
-                     AND lb.LB_rn IS NOT NULL AND o.rn < lb.LB_rn)
-                )
-            )
+    // ========== XỬ LÝ ZMV132 (CSV - BULK INSERT) ==========
+    var fileName = $"{Guid.NewGuid()}_{Path.GetFileName(vendorConfirmFile.FileName)}";
+    tempFilePath = Path.Combine(_uploadPath, fileName);
+
+    await using (var fileStream = new FileStream(tempFilePath, FileMode.Create))
+    {
+        await vendorConfirmFile.CopyToAsync(fileStream);
+    }
+
+    // ========== EXECUTE ==========
+    await using var connection = new SqlConnection(_connectionString);
+    await connection.OpenAsync();
+    using var transaction = connection.BeginTransaction();
+
+    try
+    {
+        // Xóa ZMV029_STG và insert mới
+        await using (var cmd = new SqlCommand("DELETE FROM ZMV029_STG", connection, transaction))
+            await cmd.ExecuteNonQueryAsync();
+
+        var insertSql = new StringBuilder();
+        insertSql.AppendLine("INSERT INTO ZMV029_STG (Plant, DelivDate, Material, InboundQty, Vendor) VALUES");
+        var values = data.Select(d =>
+            $"(N'{d.Plant}', " +
+            $"{(string.IsNullOrEmpty(d.DelivDate) ? "NULL" : $"'{d.DelivDate}'")}, " +
+            $"N'{d.Material}', " +
+            $"{(string.IsNullOrEmpty(d.InboundQty) ? "NULL" : d.InboundQty.Replace(",", ""))}, " +
+            $"N'{d.Vendor})"
         );
+        insertSql.AppendLine(string.Join(",\n", values));
 
-    DROP TABLE #OrderedData;
-    DROP TABLE #LB_Pos;
+        await using (var cmd = new SqlCommand(insertSql.ToString(), connection, transaction))
+            await cmd.ExecuteNonQueryAsync();
 
-    ALTER INDEX ALL ON ZFMA0037_WORK REBUILD;
-END
+        // Truncate ZMV132_STG và BULK INSERT
+        await using (var cmd = new SqlCommand("TRUNCATE TABLE ZMV132_STG", connection, transaction))
+            await cmd.ExecuteNonQueryAsync();
+
+        var fmtPath = Path.Combine(_formatPath, "zmv132.fmt");
+        var bulkSql = $@"
+    BULK INSERT ZMV132_STG
+    FROM '{tempFilePath}'
+    WITH (
+        FORMATFILE = '{fmtPath}',
+        FIRSTROW = 3,
+        CODEPAGE = '65001'
+    )";
+
+        await using (var cmd = new SqlCommand(bulkSql, connection, transaction))
+        {
+            cmd.CommandTimeout = 300;
+            await cmd.ExecuteNonQueryAsync();
+        }
+
+        // Đếm số dòng ZMV132
+        int zmv132Count = 0;
+        await using (var cmd = new SqlCommand("SELECT COUNT(*) FROM ZMV132_STG", connection, transaction))
+            zmv132Count = (int)(await cmd.ExecuteScalarAsync() ?? 0);
+
+        // Recalculate
+        await using (var cmd = new SqlCommand("sp_RecalculateAfterZMV029_ZMV132Upload", connection, transaction))
+        {
+            cmd.CommandType = CommandType.StoredProcedure;
+            cmd.CommandTimeout = 600;
+            await cmd.ExecuteNonQueryAsync();
+        }
+
+        // Log action
+        _context.ActionHistories.Add(new ActionHistory
+        {
+            Username = User.Identity?.Name ?? "Anonymous",
+            ActionName = "UpdateInbound",
+            FileName = $"{inboundFile.FileName} | {vendorConfirmFile.FileName}"
+        });
+        await _context.SaveChangesAsync();
+
+        await transaction.CommitAsync();
+
+        return Json(new
+        {
+            success = true,
+            message = $"Upload thành công: ZMV029 ({data.Count} dòng), ZMV132 ({zmv132Count:N0} dòng)."
+        });
+    }
+    catch
+    {
+        await transaction.RollbackAsync();
+        throw;
+    }
+}
+catch (Exception ex)
+{
+    return Json(new { success = false, message = $"Có lỗi xảy ra: {ex.Message}" });
+}
+finally
+{
+    if (!string.IsNullOrEmpty(tempFilePath) && System.IO.File.Exists(tempFilePath))
+    {
+        try { System.IO.File.Delete(tempFilePath); } catch { }
+    }
+}
+
+
+Lỗi: Microsoft.Data.SqlClient.SqlException
+  HResult=0x80131904
+  Message=Incorrect syntax near 'VR01'.
+Incorrect syntax near 'VR01'.
+Incorrect syntax near 'VR01'.
+  Source=Core Microsoft SqlClient Data Provider
+  StackTrace:
+   at Microsoft.Data.SqlClient.SqlConnection.OnError(SqlException exception, Boolean breakConnection, Action`1 wrapCloseInAction)
+   at Microsoft.Data.SqlClient.TdsParser.ThrowExceptionAndWarning(TdsParserStateObject stateObj, Boolean callerHasConnectionLock, Boolean asyncClose)
+   at Microsoft.Data.SqlClient.TdsParser.TryRun(RunBehavior runBehavior, SqlCommand cmdHandler, SqlDataReader dataStream, BulkCopySimpleResultSet bulkCopyHandler, TdsParserStateObject stateObj, Boolean& dataReady)
+   at Microsoft.Data.SqlClient.SqlCommand.InternalEndExecuteNonQuery(IAsyncResult asyncResult, Boolean isInternal, String endMethod)
+   at Microsoft.Data.SqlClient.SqlCommand.EndExecuteNonQueryInternal(IAsyncResult asyncResult)
+   at Microsoft.Data.SqlClient.SqlCommand.EndExecuteNonQueryAsync(IAsyncResult asyncResult)
+   at System.Threading.Tasks.TaskFactory`1.FromAsyncCoreLogic(IAsyncResult iar, Func`2 endFunction, Action`1 endAction, Task`1 promise, Boolean requiresSynchronization)
+--- End of stack trace from previous location ---
+   at CriticalListReport.Controllers.UploadTCodeController.<UpdateInbound>d__12.MoveNext() in D:\1.SVN_Trung\CriticalList Application\CriticalList\CriticalListReport\CriticalListReport\Controllers\UploadTCodeController.cs:line 445
+   at CriticalListReport.Controllers.UploadTCodeController.<UpdateInbound>d__12.MoveNext() in D:\1.SVN_Trung\CriticalList Application\CriticalList\CriticalListReport\CriticalListReport\Controllers\UploadTCodeController.cs:line 445
+
+  This exception was originally thrown at this call stack:
+    [External Code]
+    CriticalListReport.Controllers.UploadTCodeController.UpdateInbound(Microsoft.AspNetCore.Http.IFormFile, Microsoft.AspNetCore.Http.IFormFile) in UploadTCodeController.cs
+    CriticalListReport.Controllers.UploadTCodeController.UpdateInbound(Microsoft.AspNetCore.Http.IFormFile, Microsoft.AspNetCore.Http.IFormFile) in UploadTCodeController.cs

@@ -1,7 +1,8 @@
-SELECT ReceivingCardID, Barcode, ReceivingCardDate, ReceivingCardTime, PlanOrderNumber,
-       CreatedDate, CreatedBy, Status
-FROM tblReceivingCard WITH (NOLOCK)
-WHERE ReceivingType = 2
-  AND Material = 'PNBC1711ZA1/AS'
-  AND PlanOrderNumber LIKE '%2026112701%'
-ORDER BY CreatedDate DESC;
+ReceivingCardID      Barcode                                                                                                                                                                                                                                                          ReceivingCardDate ReceivingCardTime PlanOrderNumber                                                                                                                                                                                                                                                  CreatedDate             CreatedBy  Status
+-------------------- ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- ----------------- ----------------- ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- ----------------------- ---------- ------
+572200               572200;PNBC1711ZA1/AS;898;11A0;VR01;;DP                                                                                                                                                                                                                          2026-12-01        06:44:10          [{"ID":"2026112701","Quantity":898.0,"ReceiptDate":"2026-12-01T00:00:00"}]                                                                                                                                                                                       2026-11-27 06:40:30.137 2000543    0
+
+(1 row affected)
+
+
+Completion time: 2026-11-27T13:45:02.7121674+07:00
